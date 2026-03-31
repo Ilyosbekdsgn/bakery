@@ -1,0 +1,10 @@
+# Environments
+.env
+
+# Ignore SQLite db
+bot_database.db
+bot_database.db-journal
+
+# Python caches
+__pycache__/
+*.pyc
