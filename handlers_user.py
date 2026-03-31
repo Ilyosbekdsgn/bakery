@@ -38,8 +38,9 @@ async def process_order_text(message: Message, state: FSMContext):
         await process_main_menu(message, state)
         return
         
+    photo_id = message.photo[-1].file_id if message.photo else None
     order_text = message.text or message.caption or "Rasm / Sticker / Nomsiz buyurtma"
-    await state.update_data(order_text=order_text)
+    await state.update_data(order_text=order_text, photo_id=photo_id)
     await message.answer("Manzilni yozing yoki lokatsiyangizni yuboring:", reply_markup=location_keyboard())
     await state.set_state(OrderState.waiting_for_location_or_address)
 
@@ -104,19 +105,30 @@ async def process_order_phone(message: Message, state: FSMContext, bot: Bot):
     )
     
     try:
-        if data.get('latitude') and data.get('longitude'):
-            await bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
-            await bot.send_location(
+        photo_id = data.get('photo_id')
+        has_location = bool(data.get('latitude') and data.get('longitude'))
+        
+        if photo_id:
+            await bot.send_photo(
                 chat_id=ADMIN_ID, 
-                latitude=data['latitude'], 
-                longitude=data['longitude'],
-                reply_markup=admin_order_actions(order_id)
+                photo=photo_id, 
+                caption=admin_text, 
+                parse_mode="Markdown",
+                reply_markup=None if has_location else admin_order_actions(order_id)
             )
         else:
             await bot.send_message(
                 chat_id=ADMIN_ID, 
                 text=admin_text,
                 parse_mode="Markdown",
+                reply_markup=None if has_location else admin_order_actions(order_id)
+            )
+            
+        if has_location:
+            await bot.send_location(
+                chat_id=ADMIN_ID, 
+                latitude=data['latitude'], 
+                longitude=data['longitude'],
                 reply_markup=admin_order_actions(order_id)
             )
     except Exception as e:
