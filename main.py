@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sys
 from aiogram import Bot, Dispatcher
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_ID
 from database import init_db
 from handlers_user import router as user_router
 from handlers_admin import router as admin_router
@@ -15,7 +15,7 @@ async def main():
         return
         
     # Database ni initsializatsiya qilish
-    await init_db()
+    await init_db(ADMIN_ID)
     
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
