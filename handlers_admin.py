@@ -39,6 +39,33 @@ async def save_new_admin(message: Message, state: FSMContext):
     await message.answer(f"✅ Yangi admin muvaffaqiyatli qo'shildi: {new_id}")
     await state.clear()
 
+# --- ADMIN O'CHIRISH ---
+@router.message(F.text == "➖ Admin o'chirish")
+async def ask_del_admin_id(message: Message, state: FSMContext):
+    if not await is_admin(message.from_user.id):
+        return
+    await message.answer("O'chirmoqchi bo'lgan adminning Telegram ID raqamini kiriting:")
+    await state.set_state(AdminState.waiting_for_del_admin_id)
+
+@router.message(AdminState.waiting_for_del_admin_id, F.text)
+async def delete_admin_handler(message: Message, state: FSMContext):
+    del_id = message.text.strip()
+    if not del_id.isdigit():
+        await message.answer("Iltimos, faqat raqamlardan iborat ID kiriting.")
+        return
+    if str(del_id) == str(ADMIN_ID):
+        await message.answer("Bosh adminni o'chirib bo'lmaydi!")
+        return
+        
+    admins = await db.get_admins()
+    if str(del_id) not in admins:
+        await message.answer("Bunday admin topilmadi.")
+        return
+        
+    await db.delete_admin(del_id)
+    await message.answer(f"✅ Qayd etilgan admin muvaffaqiyatli adminlikdan chiqarildi.")
+    await state.clear()
+
 # --- SHIRINLIK QO'SHISH ---
 @router.message(F.text == "🍰 Shirinlik qo'shish")
 async def ask_product_photo(message: Message, state: FSMContext):
