@@ -66,6 +66,11 @@ async def get_admins():
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
+async def delete_admin(admin_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM admins WHERE admin_id = ?', (str(admin_id),))
+        await db.commit()
+
 # ----- PRODUCTS -----
 async def add_product(name, photo_id, price_whole, price_slice):
     async with aiosqlite.connect(DB_NAME) as db:
