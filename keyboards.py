@@ -20,7 +20,8 @@ def main_menu(is_admin=False):
 def admin_panel_menu():
     kb = [
         [KeyboardButton(text="🍰 Shirinlik qo'shish"), KeyboardButton(text="🗑 Shirinlik o'chirish")],
-        [KeyboardButton(text="➕ Admin qo'shish"), KeyboardButton(text="📊 Statistika")],
+        [KeyboardButton(text="➕ Admin qo'shish"), KeyboardButton(text="➖ Admin o'chirish")],
+        [KeyboardButton(text="📊 Statistika")],
         [KeyboardButton(text="🏠 Bosh menyu")]
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
