@@ -12,3 +12,4 @@ class AdminState(StatesGroup):
     waiting_for_product_price_whole = State()
     waiting_for_product_price_slice = State()
     waiting_for_new_admin_id = State()
+    waiting_for_del_admin_id = State()
