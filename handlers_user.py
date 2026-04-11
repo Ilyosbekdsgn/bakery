@@ -273,6 +273,8 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
 async def process_receipt(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     order_id = data.get('order_id')
+    product_id = data.get('product_id')
+    
     if not order_id:
         return
         
@@ -280,35 +282,55 @@ async def process_receipt(message: Message, state: FSMContext, bot: Bot):
     if not order:
         return
 
+    product = None
+    if product_id:
+        product = await db.get_product(product_id)
+
     await message.answer("✅ Buyurtmangiz qabul qilindi, tez orada yetkazib beramiz!")
     
     receipt_photo = message.photo[-1].file_id
     admin_text = (
-        f"🆕 *Yangi To'lov & Buyurtma #{order_id}*\n\n"
+        f"🆕 *Yangi Buyurtma #{order_id}*\n\n"
         f"👤 Mijoz: {message.from_user.full_name} (@{message.from_user.username})\n"
         f"📞 Telefon: {order['phone']}\n"
         f"📍 Manzil: {order['address']}\n"
         f"📝 Buyurtma: {order['order_text']}\n"
-        f"💰 Tolov qilingan summa: {order['price']} so'm\n\n(Quyidagi rasm - To'lov cheki)"
+        f"💰 Tolov qilingan summa: {order['price']} so'm\n"
     )
     
     admins = await db.get_admins()
     for ad_id in admins:
         try:
-            await bot.send_photo(
-                chat_id=ad_id,
-                photo=receipt_photo,
-                caption=admin_text,
-                parse_mode="Markdown",
-                reply_markup=admin_delivery_actions(order_id) if not (order['latitude'] and order['longitude']) else None
-            )
+            # 1. Product photo and details
+            if product and product['photo_id']:
+                await bot.send_photo(
+                    chat_id=ad_id,
+                    photo=product['photo_id'],
+                    caption=admin_text,
+                    parse_mode="Markdown"
+                )
+            else:
+                await bot.send_message(
+                    chat_id=ad_id,
+                    text=admin_text,
+                    parse_mode="Markdown"
+                )
+                
+            # 2. Location (if present)
             if order['latitude'] and order['longitude']:
                 await bot.send_location(
                     chat_id=ad_id, 
                     latitude=order['latitude'], 
-                    longitude=order['longitude'],
-                    reply_markup=admin_delivery_actions(order_id)
+                    longitude=order['longitude']
                 )
+
+            # 3. Receipt with action buttons (always last)
+            await bot.send_photo(
+                chat_id=ad_id,
+                photo=receipt_photo,
+                caption="💳 To'lov cheki:",
+                reply_markup=admin_delivery_actions(order_id)
+            )
         except Exception as e:
             print(f"Failed to send to admin {ad_id}: {e}")
             
