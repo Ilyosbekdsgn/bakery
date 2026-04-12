@@ -232,3 +232,41 @@ async def admin_delivered(callback: CallbackQuery, bot: Bot):
             await bot.send_message(order['user_id'], f"🏁 Buyurtmangiz yetkazib berildi! Yoqimli ishtaha. 'By guli bakery'")
     except Exception as e:
         print(e)
+
+# --- CUSTOM ORDER PRICE SETUP ---
+@router.callback_query(F.data.startswith("admin_set_price_"))
+async def ask_custom_order_price(callback: CallbackQuery, state: FSMContext):
+    if not await is_admin(callback.from_user.id):
+        return
+    order_id = int(callback.data.split("_")[3])
+    await callback.message.answer(f"Buyurtma #{order_id} uchun summani kiriting (raqamlarda):")
+    await state.update_data(set_price_order_id=order_id)
+    await state.set_state(AdminState.waiting_for_custom_order_price)
+    await callback.answer()
+
+@router.message(AdminState.waiting_for_custom_order_price, F.text)
+async def process_custom_order_price(message: Message, state: FSMContext, bot: Bot):
+    if not message.text.isdigit():
+        await message.answer("Iltimos, summani faqat raqamlarda kiriting:")
+        return
+        
+    data = await state.get_data()
+    order_id = data.get('set_price_order_id')
+    price = int(message.text)
+    
+    await db.update_order_price(order_id, price)
+    order = await db.get_order(order_id)
+    
+    from keyboards import checkout_keyboard
+    try:
+        await bot.send_message(
+            chat_id=order['user_id'],
+            text=f"✅ Buyurtma #{order_id} uchun narx belgilandi: {price} so'm.\n\nPastdagi to'lov qilish tugmasi orqali to'lovni amalga oshirishingiz mumkin:",
+            reply_markup=checkout_keyboard(order_id)
+        )
+        await message.answer(f"✅ Summa mijozga muvaffaqiyatli yuborildi ({price} so'm).")
+    except Exception as e:
+        await message.answer("Xatolik: Mijozga xabar yuborib bo'lmadi.")
+        print(e)
+    
+    await state.clear()
