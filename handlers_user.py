@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
 from states import OrderState
-from keyboards import main_menu, phone_keyboard, location_keyboard, checkout_keyboard, admin_delivery_actions, back_to_main, subscription_keyboard, dynamic_products_keyboard, product_options_inline
+from keyboards import main_menu, phone_keyboard, location_keyboard, checkout_keyboard, admin_delivery_actions, back_to_main, subscription_keyboard, dynamic_products_keyboard, product_options_inline, admin_custom_order_actions
 import database as db
 from config import ADMIN_ID
 from handlers_admin import is_admin
@@ -108,6 +108,36 @@ async def select_product(callback: CallbackQuery):
         parse_mode="Markdown",
         reply_markup=product_options_inline(product_id)
     )
+
+@router.callback_query(F.data == "custom_order")
+async def handle_custom_order(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await callback.message.answer(
+        "Kerakli suratni yuklang yoki nima kerakligi hamda necha pul bo'lishi haqida yozib qoldiring:",
+        reply_markup=back_to_main()
+    )
+    await state.set_state(OrderState.waiting_for_custom_order_details)
+
+@router.message(OrderState.waiting_for_custom_order_details, F.photo | F.text)
+async def process_custom_order_details(message: Message, state: FSMContext, bot: Bot):
+    if message.text == "🏠 Bosh menyu":
+        await process_main_menu(message, state, bot)
+        return
+
+    if message.photo:
+        photo_id = message.photo[-1].file_id
+        order_text = message.caption or "Menyudan tashqari rasmli buyurtma"
+        await state.update_data(custom_photo_id=photo_id, order_text=order_text)
+    else:
+        await state.update_data(order_text=message.text)
+        
+    await state.update_data(
+        is_custom_order=True,
+        total_price=0
+    )
+    
+    await message.answer("📍 Manzilni yozing yoki lokatsiyangizni yuboring:", reply_markup=location_keyboard())
+    await state.set_state(OrderState.waiting_for_location_or_address)
 
 # --- BUYING WORKFLOW ---
 @router.callback_query(F.data.startswith("buy_whole_"))
@@ -214,6 +244,35 @@ async def process_order_phone(message: Message, state: FSMContext, bot: Bot):
     await state.update_data(order_id=order_id)
     admin_status = await is_admin(message.from_user.id)
     
+    if data.get('is_custom_order'):
+        await message.answer(
+            "✅ Buyurtmangiz qabul qilindi va adminga yuborildi!\n"
+            "Admin tez orada hisob-kitob qilib, narxni yuboradi. Iltimos botdan keladigan xabarni kuting.",
+            reply_markup=main_menu(admin_status)
+        )
+        
+        admin_text = (
+            f"🆕 *So'rov: Menyudan tashqari buyurtma #{order_id}*\n\n"
+            f"👤 Mijoz: {message.from_user.full_name} (@{message.from_user.username})\n"
+            f"📞 Telefon: {phone}\n"
+            f"📍 Manzil: {data['address']}\n"
+            f"📝 Tafsilotlar: {data.get('order_text', 'Bo`sh')}\n"
+        )
+        admins = await db.get_admins()
+        for ad_id in admins:
+            try:
+                if data.get('custom_photo_id'):
+                    await bot.send_photo(chat_id=ad_id, photo=data['custom_photo_id'], caption=admin_text, reply_markup=admin_custom_order_actions(order_id), parse_mode="Markdown")
+                else:
+                    await bot.send_message(chat_id=ad_id, text=admin_text, reply_markup=admin_custom_order_actions(order_id), parse_mode="Markdown")
+                
+                if data.get('latitude') and data.get('longitude'):
+                    await bot.send_location(chat_id=ad_id, latitude=data['latitude'], longitude=data['longitude'])
+            except Exception:
+                pass
+        await state.clear()
+        return
+
     await message.answer(
         "✅ Buyurtmalaringiz muvaffaqiyatli yig'ildi!",
         reply_markup=main_menu(admin_status)
@@ -259,11 +318,14 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Buyurtma topilmadi.", show_alert=True)
         return
         
+    await state.update_data(order_id=order_id)
+    await state.set_state(OrderState.waiting_for_receipt)
+        
     text = (
         f"🌟 Buyurtma #{order_id} to'lov ma'lumotlari:\n\n"
         f"Narxi: {order['price']} so'm\n"
-        f"Karta raqami: `9860 1606 2979 1890`\n"
-        f"Ism Familiya: Toirjonov ilyosbek\n\n"
+        f"Karta raqami: `4067 0700 0058 0113`\n"
+        f"Ism Familiya: Ortiqov Izzatillo\n\n"
         f"💳 To'lov qilganingizdan so'ng chekni (rasmni) shu botga yuboring."
     )
     await callback.message.answer(text, parse_mode="Markdown")
