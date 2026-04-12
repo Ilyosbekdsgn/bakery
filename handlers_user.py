@@ -309,6 +309,51 @@ async def user_cancel_order(callback: CallbackQuery, state: FSMContext):
     except:
         pass
 
+@router.callback_query(F.data.startswith("pay_cash_"))
+async def process_pay_cash(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    order_id = int(callback.data.split("_")[2])
+    order = await db.get_order(order_id)
+    if not order:
+        return await callback.answer("Buyurtma topilmadi.", show_alert=True)
+        
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("✅ Buyurtmangiz qabul qilindi, tez orada yetkazib beramiz! (To'lov olinganda qilinadi)")
+    
+    data = await state.get_data()
+    product_id = data.get('product_id')
+    product = None
+    if product_id:
+        product = await db.get_product(product_id)
+        
+    admin_text = (
+        f"🆕 *Yangi Buyurtma #{order_id}*\n\n"
+        f"👤 Mijoz: {callback.from_user.full_name} (@{callback.from_user.username})\n"
+        f"📞 Telefon: {order['phone']}\n"
+        f"📍 Manzil: {order['address']}\n"
+        f"📝 Buyurtma: {order['order_text']}\n"
+        f"💰 Summa: {order['price']} so'm\n"
+        f"💵 *To'lov usuli: Olinganda to'lash deb belgilandi*\n"
+    )
+    
+    admins = await db.get_admins()
+    for ad_id in admins:
+        try:
+            if product and product['photo_id']:
+                await bot.send_photo(chat_id=ad_id, photo=product['photo_id'], caption=admin_text, parse_mode="Markdown")
+            else:
+                await bot.send_message(chat_id=ad_id, text=admin_text, parse_mode="Markdown")
+                
+            if order['latitude'] and order['longitude']:
+                await bot.send_location(chat_id=ad_id, latitude=order['latitude'], longitude=order['longitude'])
+                
+            from keyboards import admin_delivery_actions
+            await bot.send_message(chat_id=ad_id, text=f"Buyurtma #{order_id} boshqaruvi:", reply_markup=admin_delivery_actions(order_id))
+        except Exception as e:
+            print(f"Error {e}")
+            
+    await state.clear()
+    await callback.answer()
+
 @router.callback_query(F.data.startswith("pay_"))
 async def process_payment(callback: CallbackQuery, state: FSMContext):
     order_id = int(callback.data.split("_")[1])
