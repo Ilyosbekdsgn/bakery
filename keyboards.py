@@ -42,6 +42,7 @@ def dynamic_products_keyboard(products):
     builder = InlineKeyboardBuilder()
     for product in products:
         builder.button(text=product['name'], callback_data=f"product_{product['id']}")
+    builder.button(text="📝 Menyudan tashqari buyurtma", callback_data="custom_order")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -81,6 +82,12 @@ def admin_delivery_actions(order_id):
     builder = InlineKeyboardBuilder()
     builder.button(text="🚚 Buyurtma yuborildi", callback_data=f"admin_sent_{order_id}")
     builder.button(text="🏁 Mijozga yetkazib berildi", callback_data=f"admin_delivered_{order_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def admin_custom_order_actions(order_id):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Summa kiritish", callback_data=f"admin_set_price_{order_id}")
     builder.adjust(1)
     return builder.as_markup()
 
