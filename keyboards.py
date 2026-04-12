@@ -74,6 +74,7 @@ def location_keyboard():
 def checkout_keyboard(order_id):
     builder = InlineKeyboardBuilder()
     builder.button(text="💳 To'lov qilish", callback_data=f"pay_{order_id}")
+    builder.button(text="💵 Olinganda to'lash", callback_data=f"pay_cash_{order_id}")
     builder.button(text="❌ Bekor qilish", callback_data=f"user_cancel_{order_id}")
     builder.adjust(1)
     return builder.as_markup()
