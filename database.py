@@ -34,15 +34,69 @@ async def init_db(main_admin_id):
                 name TEXT,
                 photo_id TEXT,
                 price_whole INTEGER,
-                price_slice INTEGER
+                price_slice INTEGER,
+                discount_whole INTEGER DEFAULT 0,
+                discount_slice INTEGER DEFAULT 0
             )
         ''')
+        # Alter table for existing data
+        try:
+            await db.execute('ALTER TABLE products ADD COLUMN discount_whole INTEGER DEFAULT 0')
+            await db.execute('ALTER TABLE products ADD COLUMN discount_slice INTEGER DEFAULT 0')
+        except:
+            pass
+
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS cakes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                photo_id TEXT,
+                price INTEGER,
+                description TEXT,
+                discount_amount INTEGER DEFAULT 0
+            )
+        ''')
+        try:
+            await db.execute('ALTER TABLE cakes ADD COLUMN discount_amount INTEGER DEFAULT 0')
+        except:
+            pass
+
         await db.execute('''
             CREATE TABLE IF NOT EXISTS admins (
                 admin_id TEXT PRIMARY KEY
             )
         ''')
+        
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS carts (
+                cart_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                product_name TEXT,
+                quantity INTEGER,
+                price INTEGER
+            )
+        ''')
         await db.execute('INSERT OR IGNORE INTO admins (admin_id) VALUES (?)', (str(main_admin_id),))
+        await db.commit()
+
+# ----- SETTINGS -----
+async def is_discount_active():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT value FROM settings WHERE key = 'thursday_discount'") as cursor:
+            row = await cursor.fetchone()
+            return True if row and row[0] == '1' else False
+
+async def set_discount_status(active: bool):
+    async with aiosqlite.connect(DB_NAME) as db:
+        val = '1' if active else '0'
+        await db.execute("INSERT INTO settings (key, value) VALUES ('thursday_discount', ?) ON CONFLICT(key) DO UPDATE SET value = ?", (val, val))
         await db.commit()
 
 # ----- USERS -----
@@ -92,10 +146,47 @@ async def get_product(product_id):
         async with db.execute('SELECT * FROM products WHERE id = ?', (product_id,)) as cursor:
             return await cursor.fetchone()
 
+async def update_product_discount(product_id, discount_whole, discount_slice):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('UPDATE products SET discount_whole = ?, discount_slice = ? WHERE id = ?', (discount_whole, discount_slice, product_id))
+        await db.commit()
+
 async def delete_product(product_id):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('DELETE FROM products WHERE id = ?', (product_id,))
         await db.commit()
+
+# ----- CAKES -----
+async def add_cake(name, photo_id, price, description):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''
+            INSERT INTO cakes (name, photo_id, price, description)
+            VALUES (?, ?, ?, ?)
+        ''', (name, photo_id, price, description))
+        await db.commit()
+
+async def get_cakes():
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM cakes') as cursor:
+            return await cursor.fetchall()
+
+async def get_cake(cake_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM cakes WHERE id = ?', (cake_id,)) as cursor:
+            return await cursor.fetchone()
+
+async def update_cake_discount(cake_id, discount_amount):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('UPDATE cakes SET discount_amount = ? WHERE id = ?', (discount_amount, cake_id))
+        await db.commit()
+
+async def delete_cake(cake_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM cakes WHERE id = ?', (cake_id,))
+        await db.commit()
+
 
 # ----- ORDERS -----
 async def create_order(user_id, order_text, phone, address, price, latitude=None, longitude=None):
@@ -142,4 +233,29 @@ async def get_statistics():
 async def reset_statistics():
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM orders")
+        await db.commit()
+
+# ----- CARTS -----
+async def add_to_cart(user_id, product_name, quantity, price):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''
+            INSERT INTO carts (user_id, product_name, quantity, price)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, product_name, quantity, price))
+        await db.commit()
+
+async def get_cart(user_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM carts WHERE user_id = ?', (user_id,)) as cursor:
+            return await cursor.fetchall()
+
+async def clear_cart(user_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM carts WHERE user_id = ?', (user_id,))
+        await db.commit()
+
+async def remove_from_cart(cart_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM carts WHERE cart_id = ?', (cart_id,))
         await db.commit()
