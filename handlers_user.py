@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
 from states import OrderState
-from keyboards import main_menu, phone_keyboard, location_keyboard, checkout_keyboard, admin_delivery_actions, back_to_main, subscription_keyboard, dynamic_products_keyboard, product_options_inline, admin_custom_order_actions
+from keyboards import main_menu, phone_keyboard, location_keyboard, checkout_keyboard, admin_delivery_actions, back_to_main, subscription_keyboard, dynamic_products_keyboard, product_options_inline, admin_custom_order_actions, dynamic_cakes_keyboard, cake_options_inline, continue_or_cart_inline, cart_actions_inline
 import database as db
 from config import ADMIN_ID
 from handlers_admin import is_admin
@@ -95,9 +95,17 @@ async def select_product(callback: CallbackQuery):
     product_id = int(callback.data.split("_")[1])
     product = await db.get_product(product_id)
     
-    caption = f"🍰 *{product['name']}*\n\n🎂 Butunicha narxi: {product['price_whole']} so'm\n"
+    is_discount = await db.is_discount_active()
+    price_whole = product['price_whole']
+    price_slice = product['price_slice']
+    
+    if is_discount:
+        price_whole = max(0, price_whole - product['discount_whole'])
+        price_slice = max(0, price_slice - product['discount_slice'])
+    
+    caption = f"🍰 *{product['name']}*\n\n🎂 Butunicha narxi: {price_whole} so'm\n"
     if product['price_slice'] > 0:
-        caption += f"🍰 Kusok narxi: {product['price_slice']} so'm\n"
+        caption += f"🍰 Kusok narxi: {price_slice} so'm\n"
         
     caption += "\nQanday xarid qilasiz?"
     
@@ -108,6 +116,87 @@ async def select_product(callback: CallbackQuery):
         parse_mode="Markdown",
         reply_markup=product_options_inline(product_id)
     )
+
+@router.callback_query(F.data == "cakes_menu")
+async def show_cakes_menu(callback: CallbackQuery):
+    cakes = await db.get_cakes()
+    await callback.message.delete()
+    if not cakes:
+        return await callback.message.answer("Hozircha menyuda tortlar yo'q.", reply_markup=back_to_main())
+    
+    is_discount = await db.is_discount_active()
+    await callback.message.answer("Qaysi tortni tanlaysiz?", reply_markup=dynamic_cakes_keyboard(cakes, is_discount))
+
+@router.callback_query(F.data.startswith("cake_"))
+async def select_cake(callback: CallbackQuery):
+    cake_id = int(callback.data.split("_")[1])
+    cake = await db.get_cake(cake_id)
+    
+    is_discount = await db.is_discount_active()
+    price = cake['price']
+    if is_discount:
+        price = max(0, price - cake['discount_amount'])
+    
+    caption = f"🎂 *{cake['name']}*\n\n💰 Narxi: {price} so'm\n📝 Ma'lumot: {cake['description']}"
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=cake['photo_id'],
+        caption=caption,
+        parse_mode="Markdown",
+        reply_markup=cake_options_inline(cake_id)
+    )
+
+@router.callback_query(F.data.startswith("write_cake_"))
+async def ask_cake_inscription(callback: CallbackQuery, state: FSMContext):
+    cake_id = int(callback.data.split("_")[2])
+    cake = await db.get_cake(cake_id)
+    
+    is_discount = await db.is_discount_active()
+    price = cake['price']
+    if is_discount:
+        price = max(0, price - cake['discount_amount'])
+    
+    await state.update_data(
+        product_id=cake_id,
+        is_cake=True,
+        total_price=price,
+        order_text=f"Tort: {cake['name']}"
+    )
+    
+    await callback.message.delete()
+    await callback.message.answer("Tort ustiga nima deb yozdirmoqchisiz?", reply_markup=back_to_main())
+    await state.set_state(OrderState.waiting_for_cake_inscription)
+
+@router.message(OrderState.waiting_for_cake_inscription, F.text)
+async def process_cake_inscription(message: Message, state: FSMContext, bot: Bot):
+    if message.text == "🏠 Bosh menyu":
+        await process_main_menu(message, state, bot)
+        return
+        
+    data = await state.get_data()
+    order_text = f"{data['order_text']}\n✏️ Ustiga yozuv: {message.text}"
+    await state.update_data(order_text=order_text)
+    
+    await message.answer("📍 Manzilni yozing yoki lokatsiyangizni yuboring:", reply_markup=location_keyboard())
+    await state.set_state(OrderState.waiting_for_location_or_address)
+
+@router.callback_query(F.data.startswith("buy_cake_"))
+async def buy_cake_now(callback: CallbackQuery, state: FSMContext):
+    cake_id = int(callback.data.split("_")[2])
+    cake = await db.get_cake(cake_id)
+    
+    is_discount = await db.is_discount_active()
+    price = cake['price']
+    if is_discount:
+        price = max(0, price - cake['discount_amount'])
+        
+    order_text = f"Tort: {cake['name']}"
+    
+    await db.add_to_cart(callback.from_user.id, order_text, 1, price)
+    
+    await callback.message.delete()
+    await callback.message.answer("✅ Mahsulot savatga qo'shildi! Jami necha sumlik ekanligini bilish uchun va zakazni yakunlash uchun savatga o'ting.", reply_markup=continue_or_cart_inline())
 
 @router.callback_query(F.data == "custom_order")
 async def handle_custom_order(callback: CallbackQuery, state: FSMContext):
@@ -145,17 +234,17 @@ async def buy_whole(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.split("_")[2])
     product = await db.get_product(product_id)
     
-    await state.update_data(
-        product_id=product_id,
-        order_type="Butun",
-        quantity=1,
-        total_price=product['price_whole'],
-        order_text=f"{product['name']} (Butunicha)"
-    )
+    is_discount = await db.is_discount_active()
+    price_whole = product['price_whole']
+    if is_discount:
+        price_whole = max(0, price_whole - product['discount_whole'])
+        
+    order_text = f"{product['name']} (Butunicha)"
+    
+    await db.add_to_cart(callback.from_user.id, order_text, 1, price_whole)
     
     await callback.message.delete()
-    await callback.message.answer("📍 Manzilni yozing yoki lokatsiyangizni yuboring:", reply_markup=location_keyboard())
-    await state.set_state(OrderState.waiting_for_location_or_address)
+    await callback.message.answer("✅ Mahsulot savatga qo'shildi! Davom etasizmi yoki savatga o'tasizmi?", reply_markup=continue_or_cart_inline())
 
 @router.callback_query(F.data.startswith("buy_slice_"))
 async def buy_slice(callback: CallbackQuery, state: FSMContext):
@@ -166,10 +255,15 @@ async def buy_slice(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Bu mahsulot kusokka sotilmaydi!", show_alert=True)
         return
         
+    is_discount = await db.is_discount_active()
+    price_slice = product['price_slice']
+    if is_discount:
+        price_slice = max(0, price_slice - product['discount_slice'])
+        
     await state.update_data(
         product_id=product_id,
         order_type="Kusok",
-        price_slice=product['price_slice'],
+        price_slice=price_slice,
         product_name=product['name']
     )
     
@@ -190,14 +284,74 @@ async def process_quantity(message: Message, state: FSMContext):
     qty = int(message.text)
     data = await state.get_data()
     total_price = qty * data['price_slice']
+    order_text = f"{data['product_name']} (Kusok)"
     
+    await db.add_to_cart(message.from_user.id, order_text, qty, data['price_slice'])
+    
+    await message.answer("✅ Mahsulot savatga qo'shildi! Davom etasizmi yoki savatga o'tasizmi?", reply_markup=continue_or_cart_inline())
+    await state.clear()
+
+# --- SAVAT LOGIKASI ---
+@router.message(F.text == "🛒 Savatim")
+@router.callback_query(F.data == "view_cart")
+async def view_cart_handler(update: Message | CallbackQuery):
+    user_id = update.from_user.id
+    carts = await db.get_cart(user_id)
+    
+    if isinstance(update, CallbackQuery):
+        await update.message.delete()
+        
+    if not carts:
+        text = "Sizning savatingiz bo'sh. Nimadir ro'yxatdan tanlang!"
+        if isinstance(update, CallbackQuery):
+            await update.message.answer(text)
+        else:
+            await update.answer(text)
+        return
+        
+    text = "🛍 **Sizning savatingiz:**\n\n"
+    total_sum = 0
+    for idx, item in enumerate(carts, start=1):
+        item_total = item['quantity'] * item['price']
+        total_sum += item_total
+        text += f"{idx}. {item['product_name']} - {item['quantity']} ta x {item['price']} so'm = {item_total} so'm\n"
+        
+    text += f"\n**Jami summa: {total_sum} so'm**"
+    
+    if isinstance(update, CallbackQuery):
+        await update.message.answer(text, reply_markup=cart_actions_inline(), parse_mode="Markdown")
+    else:
+        await update.answer(text, reply_markup=cart_actions_inline(), parse_mode="Markdown")
+
+@router.callback_query(F.data == "clear_cart")
+async def clear_cart_handler(callback: CallbackQuery):
+    await db.clear_cart(callback.from_user.id)
+    await callback.message.edit_text("🗑 Savatingiz bo'shatildi!")
+    await callback.answer()
+
+@router.callback_query(F.data == "checkout_cart")
+async def checkout_cart_handler(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    carts = await db.get_cart(user_id)
+    
+    if not carts:
+        return await callback.answer("Savatingiz bo'sh!", show_alert=True)
+        
+    order_text = "Savatdagi mahsulotlar:\n"
+    total_price = 0
+    for item in carts:
+        item_total = item['quantity'] * item['price']
+        total_price += item_total
+        order_text += f"🔹 {item['product_name']} - {item['quantity']} ta ({item_total} so'm)\n"
+        
     await state.update_data(
-        quantity=qty,
+        order_text=order_text,
         total_price=total_price,
-        order_text=f"{data['product_name']} ({qty} kusok)"
+        is_custom_order=False
     )
     
-    await message.answer("📍 Manzilni yozing yoki lokatsiyangizni yuboring:", reply_markup=location_keyboard())
+    await callback.message.delete()
+    await callback.message.answer("📍 Etkazib berish manzilini yozing yoki lokatsiyangizni yuboring:", reply_markup=location_keyboard())
     await state.set_state(OrderState.waiting_for_location_or_address)
 
 @router.message(OrderState.waiting_for_location_or_address)
@@ -240,6 +394,8 @@ async def process_order_phone(message: Message, state: FSMContext, bot: Bot):
         latitude=data.get('latitude'),
         longitude=data.get('longitude')
     )
+    
+    await db.clear_cart(message.from_user.id)
     
     await state.update_data(order_id=order_id)
     admin_status = await is_admin(message.from_user.id)
