@@ -375,11 +375,26 @@ async def reset_statistics():
 # ----- CARTS -----
 async def add_to_cart(user_id, product_name, quantity, price, photo_id=None):
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('''
-            INSERT INTO carts (user_id, product_name, quantity, price, photo_id)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, product_name, quantity, price, photo_id))
-        await db.commit()
+        try:
+            await db.execute('''
+                INSERT INTO carts (user_id, product_name, quantity, price, photo_id)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, product_name, quantity, price, photo_id))
+        except Exception:
+            # Fallback syntax if database lacks photo_id column due to no restart
+            try:
+                await db.execute('ALTER TABLE carts ADD COLUMN photo_id TEXT')
+                await db.execute('''
+                    INSERT INTO carts (user_id, product_name, quantity, price, photo_id)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, product_name, quantity, price, photo_id))
+            except Exception:
+                await db.execute('''
+                    INSERT INTO carts (user_id, product_name, quantity, price)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_id, product_name, quantity, price))
+        finally:
+            await db.commit()
 
 async def get_cart(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
