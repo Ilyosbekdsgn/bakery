@@ -257,7 +257,7 @@ async def buy_cake_now(callback: CallbackQuery, state: FSMContext):
         
     order_text = f"Tort: {cake['name']}"
     
-    await db.add_to_cart(callback.from_user.id, order_text, 1, price)
+    await db.add_to_cart(callback.from_user.id, order_text, 1, price, cake['photo_id'])
     
     await callback.message.delete()
     await callback.message.answer("✅ Mahsulot savatga qo'shildi! Jami necha sumlik ekanligini bilish uchun va zakazni yakunlash uchun savatga o'ting.", reply_markup=continue_or_cart_inline())
@@ -305,7 +305,7 @@ async def buy_whole(callback: CallbackQuery, state: FSMContext):
         
     order_text = f"{product['name']} (Butunicha)"
     
-    await db.add_to_cart(callback.from_user.id, order_text, 1, price_whole)
+    await db.add_to_cart(callback.from_user.id, order_text, 1, price_whole, product['photo_id'])
     
     await callback.message.delete()
     await callback.message.answer("✅ Mahsulot savatga qo'shildi! Davom etasizmi yoki savatga o'tasizmi?", reply_markup=continue_or_cart_inline())
@@ -328,7 +328,8 @@ async def buy_slice(callback: CallbackQuery, state: FSMContext):
         product_id=product_id,
         order_type="Kusok",
         price_slice=price_slice,
-        product_name=product['name']
+        product_name=product['name'],
+        photo_id=product['photo_id']
     )
     
     await callback.message.delete()
@@ -349,7 +350,8 @@ async def buy_fast_food(callback: CallbackQuery, state: FSMContext):
         product_id=ff_id,
         order_type="Fastfood",
         price_slice=price,
-        product_name=ff['name']
+        product_name=ff['name'],
+        photo_id=ff['photo_id']
     )
     
     await callback.message.delete()
@@ -370,7 +372,8 @@ async def buy_custom_product(callback: CallbackQuery, state: FSMContext):
         product_id=prod_id,
         order_type="CustomProduct",
         price_slice=price,
-        product_name=prod['name']
+        product_name=prod['name'],
+        photo_id=prod['photo_id']
     )
     
     await callback.message.delete()
@@ -399,7 +402,7 @@ async def process_quantity(message: Message, state: FSMContext):
     else:
         order_text = f"{data['product_name']}"
     
-    await db.add_to_cart(message.from_user.id, order_text, qty, data['price_slice'])
+    await db.add_to_cart(message.from_user.id, order_text, qty, data['price_slice'], data.get('photo_id'))
     
     await message.answer("✅ Mahsulot savatga qo'shildi! Davom etasizmi yoki savatga o'tasizmi?", reply_markup=continue_or_cart_inline())
     await state.clear()
@@ -452,15 +455,19 @@ async def checkout_cart_handler(callback: CallbackQuery, state: FSMContext):
         
     order_text = "Savatdagi mahsulotlar:\n"
     total_price = 0
+    photo_ids = []
     for item in carts:
         item_total = item['quantity'] * item['price']
         total_price += item_total
         order_text += f"🔹 {item['product_name']} - {item['quantity']} ta ({item_total} so'm)\n"
+        if item.get('photo_id') and item['photo_id'] not in photo_ids:
+            photo_ids.append(item['photo_id'])
         
     await state.update_data(
         order_text=order_text,
         total_price=total_price,
-        is_custom_order=False
+        is_custom_order=False,
+        cart_photos=photo_ids
     )
     
     await callback.message.delete()
@@ -589,6 +596,7 @@ async def process_pay_cash(callback: CallbackQuery, state: FSMContext, bot: Bot)
     await callback.message.answer("✅ Buyurtmangiz qabul qilindi, tez orada yetkazib beramiz! (To'lov olinganda qilinadi)")
     
     data = await state.get_data()
+    cart_photos = data.get('cart_photos', [])
     product_id = data.get('product_id')
     product = None
     if product_id:
@@ -607,7 +615,17 @@ async def process_pay_cash(callback: CallbackQuery, state: FSMContext, bot: Bot)
     admins = await db.get_admins()
     for ad_id in admins:
         try:
-            if product and product['photo_id']:
+            if cart_photos:
+                if len(cart_photos) == 1:
+                    await bot.send_photo(chat_id=ad_id, photo=cart_photos[0], caption=admin_text, parse_mode="Markdown")
+                else:
+                    await bot.send_message(chat_id=ad_id, text=admin_text, parse_mode="Markdown")
+                    from aiogram.utils.media_group import MediaGroupBuilder
+                    media_group = MediaGroupBuilder()
+                    for pid in cart_photos[:10]:
+                        media_group.add_photo(media=pid)
+                    await bot.send_media_group(chat_id=ad_id, media=media_group.build())
+            elif product and product['photo_id']:
                 await bot.send_photo(chat_id=ad_id, photo=product['photo_id'], caption=admin_text, parse_mode="Markdown")
             else:
                 await bot.send_message(chat_id=ad_id, text=admin_text, parse_mode="Markdown")
@@ -649,6 +667,7 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
 async def process_receipt(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     order_id = data.get('order_id')
+    cart_photos = data.get('cart_photos', [])
     product_id = data.get('product_id')
     
     if not order_id:
@@ -677,22 +696,21 @@ async def process_receipt(message: Message, state: FSMContext, bot: Bot):
     admins = await db.get_admins()
     for ad_id in admins:
         try:
-            # 1. Product photo and details
-            if product and product['photo_id']:
-                await bot.send_photo(
-                    chat_id=ad_id,
-                    photo=product['photo_id'],
-                    caption=admin_text,
-                    parse_mode="Markdown"
-                )
+            if cart_photos:
+                if len(cart_photos) == 1:
+                    await bot.send_photo(chat_id=ad_id, photo=cart_photos[0], caption=admin_text, parse_mode="Markdown")
+                else:
+                    await bot.send_message(chat_id=ad_id, text=admin_text, parse_mode="Markdown")
+                    from aiogram.utils.media_group import MediaGroupBuilder
+                    media_group = MediaGroupBuilder()
+                    for pid in cart_photos[:10]:
+                        media_group.add_photo(media=pid)
+                    await bot.send_media_group(chat_id=ad_id, media=media_group.build())
+            elif product and product['photo_id']:
+                await bot.send_photo(chat_id=ad_id, photo=product['photo_id'], caption=admin_text, parse_mode="Markdown")
             else:
-                await bot.send_message(
-                    chat_id=ad_id,
-                    text=admin_text,
-                    parse_mode="Markdown"
-                )
+                await bot.send_message(chat_id=ad_id, text=admin_text, parse_mode="Markdown")
                 
-            # 2. Location (if present)
             if order['latitude'] and order['longitude']:
                 await bot.send_location(
                     chat_id=ad_id, 
@@ -700,7 +718,6 @@ async def process_receipt(message: Message, state: FSMContext, bot: Bot):
                     longitude=order['longitude']
                 )
 
-            # 3. Receipt with action buttons (always last)
             await bot.send_photo(
                 chat_id=ad_id,
                 photo=receipt_photo,

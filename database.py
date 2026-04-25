@@ -119,9 +119,14 @@ async def init_db(main_admin_id):
                 user_id INTEGER,
                 product_name TEXT,
                 quantity INTEGER,
-                price INTEGER
+                price INTEGER,
+                photo_id TEXT
             )
         ''')
+        try:
+            await db.execute('ALTER TABLE carts ADD COLUMN photo_id TEXT')
+        except:
+            pass
         await db.execute('INSERT OR IGNORE INTO admins (admin_id) VALUES (?)', (str(main_admin_id),))
         await db.commit()
 
@@ -368,12 +373,12 @@ async def reset_statistics():
         await db.commit()
 
 # ----- CARTS -----
-async def add_to_cart(user_id, product_name, quantity, price):
+async def add_to_cart(user_id, product_name, quantity, price, photo_id=None):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('''
-            INSERT INTO carts (user_id, product_name, quantity, price)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, product_name, quantity, price))
+            INSERT INTO carts (user_id, product_name, quantity, price, photo_id)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (user_id, product_name, quantity, price, photo_id))
         await db.commit()
 
 async def get_cart(user_id):
