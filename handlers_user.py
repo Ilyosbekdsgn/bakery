@@ -460,8 +460,9 @@ async def checkout_cart_handler(callback: CallbackQuery, state: FSMContext):
         item_total = item['quantity'] * item['price']
         total_price += item_total
         order_text += f"🔹 {item['product_name']} - {item['quantity']} ta ({item_total} so'm)\n"
-        if item.get('photo_id') and item['photo_id'] not in photo_ids:
-            photo_ids.append(item['photo_id'])
+        photo_id = dict(item).get('photo_id')
+        if photo_id and photo_id not in photo_ids:
+            photo_ids.append(photo_id)
         
     await state.update_data(
         order_text=order_text,
