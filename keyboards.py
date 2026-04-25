@@ -20,7 +20,8 @@ def main_menu(is_admin=False):
 
 def admin_panel_menu():
     kb = [
-        [KeyboardButton(text="🍰 Shirinlik qo'shish"), KeyboardButton(text="🗑 Shirinlik o'chirish")],
+        [KeyboardButton(text="📦 Mahsulot qo'shish"), KeyboardButton(text="🗑 Mahsulot o'chirish")],
+        [KeyboardButton(text="📂 Menyu qo'shish"), KeyboardButton(text="🗑 Menyu o'chirish")],
         [KeyboardButton(text="➕ Admin qo'shish"), KeyboardButton(text="➖ Admin o'chirish")],
         [KeyboardButton(text="🎉 Payshanba skidkasi")],
         [KeyboardButton(text="📊 Statistika")],
@@ -31,6 +32,7 @@ def admin_panel_menu():
 def thursday_discount_menu():
     kb = [
         [KeyboardButton(text="🍰 Shirinliklarga skidka qilish"), KeyboardButton(text="🎂 Tortlarga skidka qilish")],
+        [KeyboardButton(text="🍔 Fast foodlarga skidka qilish")],
         [KeyboardButton(text="🔥 Skidkani yoqish"), KeyboardButton(text="⛔️ Skidkani to'xtatish")],
         [KeyboardButton(text="🏠 Bosh menyu")]
     ]
@@ -48,11 +50,17 @@ def confirm_reset_stats():
     builder.adjust(2)
     return builder.as_markup()
 
-def dynamic_products_keyboard(products, is_discount=False):
+def dynamic_products_keyboard(products, categories=None, is_discount=False):
     builder = InlineKeyboardBuilder()
     for product in products:
         builder.button(text=product['name'], callback_data=f"product_{product['id']}")
     builder.button(text="🎂 Tortlar", callback_data="cakes_menu")
+    builder.button(text="🍔 Fast food", callback_data="fast_foods_menu")
+    
+    if categories:
+        for cat in categories:
+            builder.button(text=f"📂 {cat['name']}", callback_data=f"show_custom_cat_{cat['id']}")
+
     builder.button(text="📝 Menyudan tashqari buyurtma", callback_data="custom_order")
     builder.adjust(1)
     return builder.as_markup()
@@ -64,6 +72,17 @@ def dynamic_cakes_keyboard(cakes, is_discount=False):
         if is_discount:
             price = max(0, price - cake['discount_amount'])
         builder.button(text=f"{cake['name']} {price}", callback_data=f"cake_{cake['id']}")
+    builder.button(text="↩️ Orqaga", callback_data="back_to_products")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def dynamic_fast_foods_keyboard(fast_foods, is_discount=False):
+    builder = InlineKeyboardBuilder()
+    for item in fast_foods:
+        price = item['price']
+        if is_discount:
+            price = max(0, price - item['discount_amount'])
+        builder.button(text=f"{item['name']} {price}", callback_data=f"fastfood_{item['id']}")
     builder.button(text="↩️ Orqaga", callback_data="back_to_products")
     builder.adjust(1)
     return builder.as_markup()
@@ -82,6 +101,13 @@ def admin_discount_cakes_keyboard(cakes):
     builder.adjust(1)
     return builder.as_markup()
 
+def admin_discount_fast_foods_keyboard(fast_foods):
+    builder = InlineKeyboardBuilder()
+    for item in fast_foods:
+        builder.button(text=f"🎁 {item['name']}", callback_data=f"discfastfood_{item['id']}")
+    builder.adjust(1)
+    return builder.as_markup()
+
 def admin_delete_products_keyboard(products):
     builder = InlineKeyboardBuilder()
     for product in products:
@@ -93,6 +119,13 @@ def admin_delete_cakes_keyboard(cakes):
     builder = InlineKeyboardBuilder()
     for cake in cakes:
         builder.button(text=f"❌ {cake['name']}", callback_data=f"delcake_{cake['id']}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def admin_delete_fast_foods_keyboard(fast_foods):
+    builder = InlineKeyboardBuilder()
+    for item in fast_foods:
+        builder.button(text=f"❌ {item['name']}", callback_data=f"delfastfood_{item['id']}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -112,18 +145,65 @@ def cake_options_inline(cake_id):
     builder.adjust(1)
     return builder.as_markup()
 
-def admin_add_category_inline():
+def fast_food_options_inline(fast_food_id):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛒 Buyurtma berish", callback_data=f"buy_fastfood_{fast_food_id}")
+    builder.button(text="↩️ Orqaga", callback_data="fast_foods_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def admin_add_category_inline(categories=None):
     builder = InlineKeyboardBuilder()
     builder.button(text="🍰 Shirinlik", callback_data="add_shirinlik")
     builder.button(text="🎂 Tort", callback_data="add_cake_admin")
+    builder.button(text="🍔 Fast food", callback_data="add_fastfood_admin")
+    if categories:
+        for cat in categories:
+            builder.button(text=f"📂 {cat['name']}", callback_data=f"add_custom_prod_{cat['id']}")
     builder.adjust(2)
     return builder.as_markup()
 
-def admin_delete_category_inline():
+def admin_delete_category_inline(categories=None):
     builder = InlineKeyboardBuilder()
     builder.button(text="🍰 Shirinlik", callback_data="del_shirinlik")
     builder.button(text="🎂 Tort", callback_data="del_cake_admin")
+    builder.button(text="🍔 Fast food", callback_data="del_fastfood_admin")
+    if categories:
+        for cat in categories:
+            builder.button(text=f"📂 {cat['name']}", callback_data=f"del_custom_cat_{cat['id']}")
     builder.adjust(2)
+    return builder.as_markup()
+
+def admin_delete_menu_inline(categories):
+    builder = InlineKeyboardBuilder()
+    for cat in categories:
+        builder.button(text=f"❌ {cat['name']}", callback_data=f"rm_cat_{cat['id']}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def dynamic_custom_products_keyboard(products, is_discount=False):
+    builder = InlineKeyboardBuilder()
+    for item in products:
+        price = item['price']
+        if is_discount:
+            price = max(0, price - item['discount_amount'])
+        builder.button(text=f"{item['name']} {price}", callback_data=f"customprod_{item['id']}")
+    builder.button(text="↩️ Orqaga", callback_data="back_to_products")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def custom_product_options_inline(prod_id, cat_id):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛒 Buyurtma berish", callback_data=f"buy_customprod_{prod_id}")
+    builder.button(text="↩️ Orqaga", callback_data=f"show_custom_cat_{cat_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+def admin_delete_custom_products_keyboard(products):
+    builder = InlineKeyboardBuilder()
+    for item in products:
+        builder.button(text=f"❌ {item['name']}", callback_data=f"delcustomprod_{item['id']}")
+    builder.adjust(1)
     return builder.as_markup()
 
 def phone_keyboard():

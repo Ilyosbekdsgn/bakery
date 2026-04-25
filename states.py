@@ -22,6 +22,18 @@ class AdminState(StatesGroup):
     waiting_for_cake_price = State()
     waiting_for_cake_description = State()
     
+    waiting_for_fast_food_photo = State()
+    waiting_for_fast_food_name = State()
+    waiting_for_fast_food_price = State()
+    waiting_for_fast_food_description = State()
+    waiting_for_fast_food_discount_amount = State()
+
+    waiting_for_category_name = State()
+    waiting_for_custom_product_photo = State()
+    waiting_for_custom_product_name = State()
+    waiting_for_custom_product_price = State()
+    waiting_for_custom_product_description = State()
+
     # Thursday discount states
     waiting_for_product_discount_whole = State()
     waiting_for_product_discount_slice = State()

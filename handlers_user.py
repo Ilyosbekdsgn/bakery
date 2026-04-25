@@ -77,18 +77,16 @@ async def start_order(message: Message, state: FSMContext, bot: Bot):
         return
 
     products = await db.get_products()
-    if not products:
-        await message.answer("Hozircha menyuda shirinliklar yo'q.", reply_markup=back_to_main())
-        return
-        
-    await message.answer("Nima buyurtma qilasiz? (Quyidagilardan birini tanlang)", reply_markup=dynamic_products_keyboard(products))
+    categories = await db.get_categories()
+    
+    await message.answer("Nima buyurtma qilasiz? (Quyidagilardan birini tanlang)", reply_markup=dynamic_products_keyboard(products, categories))
 
 @router.callback_query(F.data == "back_to_products")
 async def back_to_products(callback: CallbackQuery):
     products = await db.get_products()
+    categories = await db.get_categories()
     await callback.message.delete()
-    if products:
-        await callback.message.answer("Nima buyurtma qilasiz?", reply_markup=dynamic_products_keyboard(products))
+    await callback.message.answer("Nima buyurtma qilasiz?", reply_markup=dynamic_products_keyboard(products, categories))
 
 @router.callback_query(F.data.startswith("product_"))
 async def select_product(callback: CallbackQuery):
@@ -145,6 +143,72 @@ async def select_cake(callback: CallbackQuery):
         caption=caption,
         parse_mode="Markdown",
         reply_markup=cake_options_inline(cake_id)
+    )
+
+@router.callback_query(F.data == "fast_foods_menu")
+async def show_fast_foods_menu(callback: CallbackQuery):
+    fast_foods = await db.get_fast_foods()
+    await callback.message.delete()
+    if not fast_foods:
+        return await callback.message.answer("Hozircha menyuda fast foodlar yo'q.", reply_markup=back_to_main())
+    
+    is_discount = await db.is_discount_active()
+    from keyboards import dynamic_fast_foods_keyboard
+    await callback.message.answer("Qaysi fast foodni tanlaysiz?", reply_markup=dynamic_fast_foods_keyboard(fast_foods, is_discount))
+
+@router.callback_query(F.data.startswith("fastfood_"))
+async def select_fast_food(callback: CallbackQuery):
+    ff_id = int(callback.data.split("_")[1])
+    ff = await db.get_fast_food(ff_id)
+    
+    is_discount = await db.is_discount_active()
+    price = ff['price']
+    if is_discount:
+        price = max(0, price - ff['discount_amount'])
+    
+    caption = f"🍔 *{ff['name']}*\n\n💰 Narxi: {price} so'm\n📝 Ma'lumot: {ff['description']}"
+    
+    await callback.message.delete()
+    from keyboards import fast_food_options_inline
+    await callback.message.answer_photo(
+        photo=ff['photo_id'],
+        caption=caption,
+        parse_mode="Markdown",
+        reply_markup=fast_food_options_inline(ff_id)
+    )
+
+@router.callback_query(F.data.startswith("show_custom_cat_"))
+async def show_custom_category(callback: CallbackQuery):
+    cat_id = int(callback.data.split("_")[3])
+    cat = await db.get_category(cat_id)
+    products = await db.get_custom_products(cat_id)
+    await callback.message.delete()
+    if not products:
+        return await callback.message.answer(f"Hozircha {cat['name']} menyusida mahsulotlar yo'q.", reply_markup=back_to_main())
+    
+    is_discount = await db.is_discount_active()
+    from keyboards import dynamic_custom_products_keyboard
+    await callback.message.answer(f"Qaysi mahsulotni tanlaysiz? ({cat['name']})", reply_markup=dynamic_custom_products_keyboard(products, is_discount))
+
+@router.callback_query(F.data.startswith("customprod_"))
+async def select_custom_product(callback: CallbackQuery):
+    prod_id = int(callback.data.split("_")[1])
+    prod = await db.get_custom_product(prod_id)
+    
+    is_discount = await db.is_discount_active()
+    price = prod['price']
+    if is_discount:
+        price = max(0, price - prod['discount_amount'])
+    
+    caption = f"📦 *{prod['name']}*\n\n💰 Narxi: {price} so'm\n📝 Ma'lumot: {prod['description']}"
+    
+    await callback.message.delete()
+    from keyboards import custom_product_options_inline
+    await callback.message.answer_photo(
+        photo=prod['photo_id'],
+        caption=caption,
+        parse_mode="Markdown",
+        reply_markup=custom_product_options_inline(prod_id, prod['category_id'])
     )
 
 @router.callback_query(F.data.startswith("write_cake_"))
@@ -271,6 +335,48 @@ async def buy_slice(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Qancha kusok olmoqchisiz? Miqdorni raqamlarda kiriting:", reply_markup=back_to_main())
     await state.set_state(OrderState.waiting_for_product_quantity)
 
+@router.callback_query(F.data.startswith("buy_fastfood_"))
+async def buy_fast_food(callback: CallbackQuery, state: FSMContext):
+    ff_id = int(callback.data.split("_")[2])
+    ff = await db.get_fast_food(ff_id)
+    
+    is_discount = await db.is_discount_active()
+    price = ff['price']
+    if is_discount:
+        price = max(0, price - ff['discount_amount'])
+        
+    await state.update_data(
+        product_id=ff_id,
+        order_type="Fastfood",
+        price_slice=price,
+        product_name=ff['name']
+    )
+    
+    await callback.message.delete()
+    await callback.message.answer("Nechta olmoqchisiz? Miqdorni raqamlarda kiriting:", reply_markup=back_to_main())
+    await state.set_state(OrderState.waiting_for_product_quantity)
+
+@router.callback_query(F.data.startswith("buy_customprod_"))
+async def buy_custom_product(callback: CallbackQuery, state: FSMContext):
+    prod_id = int(callback.data.split("_")[2])
+    prod = await db.get_custom_product(prod_id)
+    
+    is_discount = await db.is_discount_active()
+    price = prod['price']
+    if is_discount:
+        price = max(0, price - prod['discount_amount'])
+        
+    await state.update_data(
+        product_id=prod_id,
+        order_type="CustomProduct",
+        price_slice=price,
+        product_name=prod['name']
+    )
+    
+    await callback.message.delete()
+    await callback.message.answer("Nechta olmoqchisiz? Miqdorni raqamlarda kiriting:", reply_markup=back_to_main())
+    await state.set_state(OrderState.waiting_for_product_quantity)
+
 @router.message(OrderState.waiting_for_product_quantity, F.text)
 async def process_quantity(message: Message, state: FSMContext):
     if message.text == "🏠 Bosh menyu":
@@ -284,7 +390,14 @@ async def process_quantity(message: Message, state: FSMContext):
     qty = int(message.text)
     data = await state.get_data()
     total_price = qty * data['price_slice']
-    order_text = f"{data['product_name']} (Kusok)"
+    
+    order_type = data.get('order_type', '')
+    if order_type == "Kusok":
+        order_text = f"{data['product_name']} (Kusok)"
+    elif order_type == "Fastfood":
+        order_text = f"{data['product_name']} (Fast food)"
+    else:
+        order_text = f"{data['product_name']}"
     
     await db.add_to_cart(message.from_user.id, order_text, qty, data['price_slice'])
     

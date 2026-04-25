@@ -62,6 +62,45 @@ async def init_db(main_admin_id):
             pass
 
         await db.execute('''
+            CREATE TABLE IF NOT EXISTS fast_foods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                photo_id TEXT,
+                price INTEGER,
+                description TEXT,
+                discount_amount INTEGER DEFAULT 0
+            )
+        ''')
+        try:
+            await db.execute('ALTER TABLE fast_foods ADD COLUMN discount_amount INTEGER DEFAULT 0')
+        except:
+            pass
+            
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE
+            )
+        ''')
+        
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS custom_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER,
+                name TEXT,
+                photo_id TEXT,
+                price INTEGER,
+                description TEXT,
+                discount_amount INTEGER DEFAULT 0,
+                FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE CASCADE
+            )
+        ''')
+        try:
+            await db.execute('ALTER TABLE custom_products ADD COLUMN discount_amount INTEGER DEFAULT 0')
+        except:
+            pass
+
+        await db.execute('''
             CREATE TABLE IF NOT EXISTS admins (
                 admin_id TEXT PRIMARY KEY
             )
@@ -156,6 +195,38 @@ async def delete_product(product_id):
         await db.execute('DELETE FROM products WHERE id = ?', (product_id,))
         await db.commit()
 
+# ----- FAST FOODS -----
+async def add_fast_food(name, photo_id, price, description):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''
+            INSERT INTO fast_foods (name, photo_id, price, description)
+            VALUES (?, ?, ?, ?)
+        ''', (name, photo_id, price, description))
+        await db.commit()
+
+async def get_fast_foods():
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM fast_foods') as cursor:
+            return await cursor.fetchall()
+
+async def get_fast_food(fast_food_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM fast_foods WHERE id = ?', (fast_food_id,)) as cursor:
+            return await cursor.fetchone()
+
+async def update_fast_food_discount(fast_food_id, discount_amount):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('UPDATE fast_foods SET discount_amount = ? WHERE id = ?', (discount_amount, fast_food_id))
+        await db.commit()
+
+async def delete_fast_food(fast_food_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM fast_foods WHERE id = ?', (fast_food_id,))
+        await db.commit()
+
+
 # ----- CAKES -----
 async def add_cake(name, photo_id, price, description):
     async with aiosqlite.connect(DB_NAME) as db:
@@ -185,6 +256,67 @@ async def update_cake_discount(cake_id, discount_amount):
 async def delete_cake(cake_id):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('DELETE FROM cakes WHERE id = ?', (cake_id,))
+        await db.commit()
+
+# ----- CATEGORIES & CUSTOM PRODUCTS -----
+async def add_category(name):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute('INSERT OR IGNORE INTO categories (name) VALUES (?)', (name,))
+        await db.commit()
+        return cursor.lastrowid
+
+async def get_categories():
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM categories') as cursor:
+            return await cursor.fetchall()
+
+async def get_category(category_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM categories WHERE id = ?', (category_id,)) as cursor:
+            return await cursor.fetchone()
+
+async def delete_category(category_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM categories WHERE id = ?', (category_id,))
+        await db.execute('DELETE FROM custom_products WHERE category_id = ?', (category_id,))
+        await db.commit()
+
+async def add_custom_product(category_id, name, photo_id, price, description):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''
+            INSERT INTO custom_products (category_id, name, photo_id, price, description)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (category_id, name, photo_id, price, description))
+        await db.commit()
+
+async def get_custom_products(category_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM custom_products WHERE category_id = ?', (category_id,)) as cursor:
+            return await cursor.fetchall()
+
+async def get_all_custom_products():
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM custom_products') as cursor:
+            return await cursor.fetchall()
+
+async def get_custom_product(product_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM custom_products WHERE id = ?', (product_id,)) as cursor:
+            return await cursor.fetchone()
+
+async def update_custom_product_discount(product_id, discount_amount):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('UPDATE custom_products SET discount_amount = ? WHERE id = ?', (discount_amount, product_id))
+        await db.commit()
+
+async def delete_custom_product(product_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('DELETE FROM custom_products WHERE id = ?', (product_id,))
         await db.commit()
 
 

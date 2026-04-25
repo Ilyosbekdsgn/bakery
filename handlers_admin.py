@@ -67,11 +67,12 @@ async def delete_admin_handler(message: Message, state: FSMContext):
     await state.clear()
 
 # --- SHIRINLIK YOKI TORT QO'SHISH ---
-@router.message(F.text == "🍰 Shirinlik qo'shish")
+@router.message(F.text == "📦 Mahsulot qo'shish")
 async def ask_add_category(message: Message):
     if not await is_admin(message.from_user.id):
         return
-    await message.answer("Nimani qo'shmoqchisiz?", reply_markup=admin_add_category_inline())
+    categories = await db.get_categories()
+    await message.answer("Nimani qo'shmoqchisiz?", reply_markup=admin_add_category_inline(categories))
 
 @router.callback_query(F.data == "add_shirinlik")
 async def ask_product_photo(callback: CallbackQuery, state: FSMContext):
@@ -116,6 +117,132 @@ async def process_cake_description(message: Message, state: FSMContext):
     description = message.text
     
     await db.add_cake(
+        name=data['name'],
+        photo_id=data['photo_id'],
+        price=data['price'],
+        description=description
+    )
+    
+    await message.answer(f"✅ Muvaffaqiyatli qo'shildi!\n\nNomi: {data['name']}\nNarxi: {data['price']} so'm\nM'alumot: {description}")
+    await state.clear()
+
+@router.callback_query(F.data == "add_fastfood_admin")
+async def ask_fastfood_photo(callback: CallbackQuery, state: FSMContext):
+    if not await is_admin(callback.from_user.id):
+        return
+    await callback.message.edit_text("Qo'shilayotgan fast foodning rasmini yuklang:")
+    await state.set_state(AdminState.waiting_for_fast_food_photo)
+    await callback.answer()
+
+@router.message(AdminState.waiting_for_fast_food_photo, F.photo)
+async def process_fastfood_photo(message: Message, state: FSMContext):
+    photo_id = message.photo[-1].file_id
+    await state.update_data(photo_id=photo_id)
+    await message.answer("Fast food nomini kiriting:")
+    await state.set_state(AdminState.waiting_for_fast_food_name)
+
+@router.message(AdminState.waiting_for_fast_food_name, F.text)
+async def process_fastfood_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Fast food narxini kiriting (raqamlarda, masalan 15000):")
+    await state.set_state(AdminState.waiting_for_fast_food_price)
+
+@router.message(AdminState.waiting_for_fast_food_price, F.text)
+async def process_fastfood_price(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        return await message.answer("Iltimos, faqat raqamlarda kiriting:")
+    await state.update_data(price=int(message.text))
+    await message.answer("Fast food haqida malumot yozib yuboring:")
+    await state.set_state(AdminState.waiting_for_fast_food_description)
+
+@router.message(AdminState.waiting_for_fast_food_description, F.text)
+async def process_fastfood_description(message: Message, state: FSMContext):
+    data = await state.get_data()
+    description = message.text
+    
+    await db.add_fast_food(
+        name=data['name'],
+        photo_id=data['photo_id'],
+        price=data['price'],
+        description=description
+    )
+    
+    await message.answer(f"✅ Muvaffaqiyatli qo'shildi!\n\nNomi: {data['name']}\nNarxi: {data['price']} so'm\nM'alumot: {description}")
+    await state.clear()
+
+# --- MENYU QO'SHISH VA O'CHIRISH ---
+@router.message(F.text == "📂 Menyu qo'shish")
+async def ask_add_custom_menu(message: Message, state: FSMContext):
+    if not await is_admin(message.from_user.id): return
+    await message.answer("Yangi menyu nomini kiriting (Masalan: Ichimliklar 🍹):")
+    await state.set_state(AdminState.waiting_for_category_name)
+
+@router.message(AdminState.waiting_for_category_name, F.text)
+async def process_add_custom_menu(message: Message, state: FSMContext):
+    name = message.text
+    try:
+        await db.add_category(name)
+        await message.answer(f"✅ '{name}' menyusi muvaffaqiyatli qo'shildi!")
+    except Exception as e:
+        await message.answer("Xatolik! Balki bunday menyu allaqachon bordir.")
+    await state.clear()
+
+@router.message(F.text == "🗑 Menyu o'chirish")
+async def ask_del_custom_menu(message: Message):
+    if not await is_admin(message.from_user.id): return
+    categories = await db.get_categories()
+    if not categories:
+        return await message.answer("O'chirish uchun dinamik menyular mavjud emas.")
+    from keyboards import admin_delete_menu_inline
+    await message.answer("Qaysi menyuni o'chirmoqchisiz? Barcha vidjetlari qo'shilib o'chib ketadi!", reply_markup=admin_delete_menu_inline(categories))
+
+@router.callback_query(F.data.startswith("rm_cat_"))
+async def process_del_custom_menu(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id): return
+    cat_id = int(callback.data.split("_")[2])
+    cat = await db.get_category(cat_id)
+    if cat:
+        await db.delete_category(cat_id)
+        await callback.message.edit_text(f"✅ '{cat['name']}' menyusi barcha mahsulotlari bilan o'chirildi.")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("add_custom_prod_"))
+async def ask_custom_product_photo(callback: CallbackQuery, state: FSMContext):
+    if not await is_admin(callback.from_user.id): return
+    cat_id = int(callback.data.split("_")[3])
+    await state.update_data(target_category_id=cat_id)
+    await callback.message.edit_text("Qo'shilayotgan mahsulotning rasmini yuklang:")
+    await state.set_state(AdminState.waiting_for_custom_product_photo)
+    await callback.answer()
+
+@router.message(AdminState.waiting_for_custom_product_photo, F.photo)
+async def process_custom_product_photo(message: Message, state: FSMContext):
+    photo_id = message.photo[-1].file_id
+    await state.update_data(photo_id=photo_id)
+    await message.answer("Mahsulot nomini kiriting:")
+    await state.set_state(AdminState.waiting_for_custom_product_name)
+
+@router.message(AdminState.waiting_for_custom_product_name, F.text)
+async def process_custom_product_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Mahsulot narxini kiriting (raqamlarda, masalan 15000):")
+    await state.set_state(AdminState.waiting_for_custom_product_price)
+
+@router.message(AdminState.waiting_for_custom_product_price, F.text)
+async def process_custom_product_price(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        return await message.answer("Iltimos, faqat raqamlarda kiriting:")
+    await state.update_data(price=int(message.text))
+    await message.answer("Mahsulot haqida ma'lumot yozib yuboring:")
+    await state.set_state(AdminState.waiting_for_custom_product_description)
+
+@router.message(AdminState.waiting_for_custom_product_description, F.text)
+async def process_custom_product_description(message: Message, state: FSMContext):
+    data = await state.get_data()
+    description = message.text
+    
+    await db.add_custom_product(
+        category_id=data['target_category_id'],
         name=data['name'],
         photo_id=data['photo_id'],
         price=data['price'],
@@ -170,11 +297,12 @@ async def process_product_price_slice(message: Message, state: FSMContext):
     await state.clear()
 
 # --- SHIRINLIK YOKI TORT O'CHIRISH ---
-@router.message(F.text == "🗑 Shirinlik o'chirish")
+@router.message(F.text == "🗑 Mahsulot o'chirish")
 async def ask_delete_category(message: Message):
     if not await is_admin(message.from_user.id):
         return
-    await message.answer("Nimani o'chirmoqchisiz?", reply_markup=admin_delete_category_inline())
+    categories = await db.get_categories()
+    await message.answer("Nimani o'chirmoqchisiz?", reply_markup=admin_delete_category_inline(categories))
 
 @router.callback_query(F.data == "del_shirinlik")
 async def show_delete_product_menu(callback: CallbackQuery):
@@ -206,6 +334,45 @@ async def process_delete_cake(callback: CallbackQuery):
     await db.delete_cake(cake_id)
     await callback.message.edit_text(callback.message.text + "\n\n✅ Tort o'chirildi.")
     await callback.answer("Tort o'chirildi.")
+
+@router.callback_query(F.data == "del_fastfood_admin")
+async def show_delete_fastfood_menu(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id):
+        return
+    fast_foods = await db.get_fast_foods()
+    if not fast_foods:
+        return await callback.message.edit_text("O'chirish uchun fast foodlar mavjud emas.")
+    from keyboards import admin_delete_fast_foods_keyboard
+    await callback.message.edit_text("Qaysi fast foodni o'chirmoqchisiz? Tanlang:", reply_markup=admin_delete_fast_foods_keyboard(fast_foods))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("delfastfood_"))
+async def process_delete_fastfood(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id):
+        return
+    fast_food_id = int(callback.data.split("_")[1])
+    await db.delete_fast_food(fast_food_id)
+    await callback.message.edit_text(callback.message.text + "\n\n✅ Fast food o'chirildi.")
+    await callback.answer("Fast food o'chirildi.")
+
+@router.callback_query(F.data.startswith("del_custom_cat_"))
+async def show_delete_custom_products_menu(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id): return
+    cat_id = int(callback.data.split("_")[3])
+    products = await db.get_custom_products(cat_id)
+    if not products:
+        return await callback.message.edit_text("O'chirish uchun mahsulotlar mavjud emas.")
+    from keyboards import admin_delete_custom_products_keyboard
+    await callback.message.edit_text("Qaysi mahsulotni o'chirmoqchisiz? Tanlang:", reply_markup=admin_delete_custom_products_keyboard(products))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("delcustomprod_"))
+async def process_delete_custom_product(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id): return
+    prod_id = int(callback.data.split("_")[1])
+    await db.delete_custom_product(prod_id)
+    await callback.message.edit_text(callback.message.text + "\n\n✅ Mahsulot o'chirildi.")
+    await callback.answer("O'chirildi.")
 
 @router.callback_query(F.data.startswith("delproduct_"))
 async def process_delete_product(callback: CallbackQuery):
@@ -312,6 +479,45 @@ async def process_cake_discount_amount(message: Message, state: FSMContext):
     text = "✅ Muvaffaqiyatli chegirma summasi belgilandi.\n\nQolgan tortlarni skidka qilish uchun yana tanlang:"
     from keyboards import admin_discount_cakes_keyboard
     await message.answer(text, reply_markup=admin_discount_cakes_keyboard(cakes))
+    await state.clear()
+
+@router.message(F.text == "🍔 Fast foodlarga skidka qilish")
+async def show_discount_fastfoods(message: Message):
+    if not await is_admin(message.from_user.id):
+        return
+    fast_foods = await db.get_fast_foods()
+    if not fast_foods:
+        return await message.answer("Menyuda fast foodlar yo'q.")
+    from keyboards import admin_discount_fast_foods_keyboard
+    await message.answer("Qaysi fast food uchun skidka miqdorini kiritmoqchisiz?", reply_markup=admin_discount_fast_foods_keyboard(fast_foods))
+
+@router.callback_query(F.data.startswith("discfastfood_"))
+async def ask_fastfood_discount_amount(callback: CallbackQuery, state: FSMContext):
+    if not await is_admin(callback.from_user.id):
+        return
+    ff_id = int(callback.data.split("_")[1])
+    ff = await db.get_fast_food(ff_id)
+    await state.update_data(discount_target_id=ff_id)
+    await state.set_state(AdminState.waiting_for_fast_food_discount_amount)
+    
+    await callback.message.edit_text(f"🍔 {ff['name']}\nJoriy narxi: {ff['price']}\n\nSkidka summasini kiriting (raqamlarda).\nAgar skidka qilinmasligi kerak bo'lsa 0 deb yuboring:")
+    await callback.answer()
+
+@router.message(AdminState.waiting_for_fast_food_discount_amount, F.text)
+async def process_fastfood_discount_amount(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        return await message.answer("Iltimos, faqat raqamlarda kiriting:")
+        
+    amount = int(message.text)
+    data = await state.get_data()
+    ff_id = data['discount_target_id']
+    
+    await db.update_fast_food_discount(ff_id, amount)
+    
+    fast_foods = await db.get_fast_foods()
+    text = "✅ Muvaffaqiyatli chegirma summasi belgilandi.\n\nQolgan fast foodlarni skidka qilish uchun yana tanlang:"
+    from keyboards import admin_discount_fast_foods_keyboard
+    await message.answer(text, reply_markup=admin_discount_fast_foods_keyboard(fast_foods))
     await state.clear()
 
 @router.message(F.text == "🍰 Shirinliklarga skidka qilish")
